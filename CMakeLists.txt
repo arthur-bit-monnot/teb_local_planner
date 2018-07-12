@@ -10,6 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
   costmap_2d
   costmap_converter
   cmake_modules
+  dahu
   dynamic_reconfigure
   geometry_msgs
   interactive_markers
@@ -187,6 +188,7 @@ add_library(teb_local_planner
    src/homotopy_class_planner.cpp
    src/teb_local_planner_ros.cpp
    src/graph_search.cpp
+   src/dahu_planner.cpp
 )
 
 # Dynamic reconfigure: make sure configure headers are built before any node using them
@@ -210,6 +212,15 @@ target_link_libraries(test_optim_node
    ${EXTERNAL_LIBS}
    ${catkin_LIBRARIES}
 )
+
+add_executable(test_dahu src/test_dahu.cpp)
+
+target_link_libraries(test_dahu
+   teb_local_planner
+   ${EXTERNAL_LIBS}
+   ${catkin_LIBRARIES}
+)
+
 
 
 #############
