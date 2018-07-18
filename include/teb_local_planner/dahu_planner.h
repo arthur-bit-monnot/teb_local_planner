@@ -40,7 +40,8 @@
 #include <nav_msgs/Odometry.h>
 #include <limits.h>
 
-#include <dahu/Plan.h>
+#include <dahu_msgs/PlanReq.h>
+#include <teb_local_planner/dahu_plan.h>
 
 namespace teb_local_planner {
 
@@ -61,8 +62,8 @@ public:
    * @param visual Shared pointer to the TebVisualization class (optional)
    * @param via_points Container storing via-points (optional)
    */
-  DahuPlanner(const TebConfig& cfg, ObstContainer* obstacles = NULL, RobotFootprintModelPtr robot_model = boost::make_shared<PointRobotFootprint>(),
-                    TebVisualizationPtr visual = TebVisualizationPtr());
+  DahuPlanner(const TebConfig& cfg, ObstContainer* obstacles, RobotFootprintModelPtr robot_model,
+                    TebVisualizationPtr visual);
   
   /**
    * @brief Destruct the optimal planner.
@@ -85,7 +86,7 @@ public:
   /** @name Plan a trajectory  */
   //@{
   
-  void plan(const dahu::Plan& plan);
+  std::shared_ptr<Plan const> plan(std::shared_ptr<dahu_msgs::PlanReq const> plan);
 
   /**
    * @brief Optimize a previously initialized trajectory (actual TEB optimization loop).
@@ -299,112 +300,7 @@ protected:
    * @see optimizeGraph
    */
   void clearGraph();
-  
-  /**
-   * @brief Add all relevant vertices to the hyper-graph as optimizable variables.
-   * 
-   * Vertices (if unfixed) represent the variables that will be optimized. \n
-   * In case of the Timed-Elastic-Band poses and time differences form the vertices of the hyper-graph. \n
-   * The order of insertion of vertices (to the graph) is important for efficiency,
-   * since it affect the sparsity pattern of the underlying hessian computed for optimization.
-   * @see VertexPose
-   * @see VertexTimeDiff
-   * @see buildGraph
-   * @see optimizeGraph
-   */
-//   void AddTEBVertices();
-  
-  /**
-   * @brief Add all edges (local cost functions) for limiting the translational and angular velocity.
-   * @see EdgeVelocity
-   * @see buildGraph
-   * @see optimizeGraph
-   */
-//   void AddEdgesVelocity();
-  
-  /**
-   * @brief Add all edges (local cost functions) for limiting the translational and angular acceleration.
-   * @see EdgeAcceleration
-   * @see EdgeAccelerationStart
-   * @see EdgeAccelerationGoal
-   * @see buildGraph
-   * @see optimizeGraph
-   */
-//   void AddEdgesAcceleration();
-  
-  /**
-   * @brief Add all edges (local cost functions) for minimizing the transition time (resp. minimize time differences)
-   * @see EdgeTimeOptimal
-   * @see buildGraph
-   * @see optimizeGraph
-   */
-//   void AddEdgesTimeOptimal();
-  
-  /**
-   * @brief Add all edges (local cost functions) related to keeping a distance from static obstacles
-   * @warning do not combine with AddEdgesInflatedObstacles
-   * @see EdgeObstacle
-   * @see buildGraph
-   * @see optimizeGraph
-   * @param weight_multiplier Specify an additional weight multipler (in addition to the the config weight)
-   */
-//   void AddEdgesObstacles(double weight_multiplier=1.0);
-  
-  /**
-   * @brief Add all edges (local cost functions) related to keeping a distance from static obstacles (legacy association strategy)
-   * @warning do not combine with AddEdgesInflatedObstacles
-   * @see EdgeObstacle
-   * @see buildGraph
-   * @see optimizeGraph
-   * @param weight_multiplier Specify an additional weight multipler (in addition to the the config weight)
-   */
-//   void AddEdgesObstaclesLegacy(double weight_multiplier=1.0);
-  
-  /**
-   * @brief Add all edges (local cost functions) related to minimizing the distance to via-points
-   * @see EdgeViaPoint
-   * @see buildGraph
-   * @see optimizeGraph
-   */
-//   void AddEdgesViaPoints();
-  
-  /**
-   * @brief Add all edges (local cost functions) related to keeping a distance from dynamic (moving) obstacles.
-   * @warning experimental 
-   * @todo Should we also add neighbors to decrease jiggling/oscillations
-   * @see EdgeDynamicObstacle
-   * @see buildGraph
-   * @see optimizeGraph
-   * @param weight_multiplier Specify an additional weight multipler (in addition to the the config weight)
-
-   */
-//   void AddEdgesDynamicObstacles(double weight_multiplier=1.0);
-
-  /**
-   * @brief Add all edges (local cost functions) for satisfying kinematic constraints of a differential drive robot
-   * @warning do not combine with AddEdgesKinematicsCarlike()
-   * @see AddEdgesKinematicsCarlike
-   * @see buildGraph
-   * @see optimizeGraph
-   */
-//   void AddEdgesKinematicsDiffDrive();
-  
-  /**
-   * @brief Add all edges (local cost functions) for satisfying kinematic constraints of a carlike robot
-   * @warning do not combine with AddEdgesKinematicsDiffDrive()
-   * @see AddEdgesKinematicsDiffDrive
-   * @see buildGraph
-   * @see optimizeGraph
-   */
-//   void AddEdgesKinematicsCarlike();
-  
-  /**
-   * @brief Add all edges (local cost functions) for prefering a specifiy turning direction (by penalizing the other one)
-   * @see buildGraph
-   * @see optimizeGraph
-   */
-  //void AddEdgesPreferRotDir(); 
-  
+    
   //@}
   
   
@@ -418,13 +314,14 @@ protected:
   // external objects (store weak pointers)
   const TebConfig* cfg_; //!< Config class that stores and manages all related parameters
   ObstContainer* obstacles_; //!< Store obstacles that are relevant for planning
+
+  std::shared_ptr<Plan> _plan;
   
   double cost_; //!< Store cost value of the current hyper-graph
   RotType prefer_rotdir_; //!< Store whether to prefer a specific initial rotation in optimization (might be activated in case the robot oscillates)
   
   // internal objects (memory management owned)
   TebVisualizationPtr visualization_; //!< Instance of the visualization class
-  VertexPose* vertex;
   RobotFootprintModelPtr robot_model_; //!< Robot model
   boost::shared_ptr<g2o::SparseOptimizer> optimizer_; //!< g2o optimizer for trajectory optimization
 

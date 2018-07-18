@@ -229,6 +229,11 @@ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW  
 };
 
+
+typedef VertexPose VertexObjectPose;
+typedef VertexPose VertexRobotPose;
+
+
 }
 
 #endif // VERTEX_POSE_H_

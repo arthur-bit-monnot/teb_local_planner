@@ -40,12 +40,12 @@
  *
  * Author: Christoph Rösmann
  *********************************************************************/
-#ifndef EDGE_IN_AREA_H_
-#define EDGE_IN_AREA_H_
+#ifndef EDGE_COLLISION_H_
+#define EDGE_COLLISION_H_
 
 #include <teb_local_planner/g2o_types/vertex_pose.h>
 #include <teb_local_planner/g2o_types/base_teb_edges.h>
-
+#include <teb_local_planner/g2o_types/penalties.h>
 #include "g2o/core/base_unary_edge.h"
 
 
@@ -53,56 +53,51 @@ namespace teb_local_planner
 {
 
 /**
- * @class EdgeViaPoint
- * @brief Edge defining the cost function for pushing a configuration towards a via point
+ * @class EdgePreferRotDir
+ * @brief Edge defining the cost function for penalzing a specified turning direction, in particular left resp. right turns
  * 
- * The edge depends on a single vertex \f$ \mathbf{s}_i \f$ and minimizes: \n
- * \f$ \min  dist2point \cdot weight \f$. \n
- * \e dist2point denotes the distance to the via point. \n
+ * The edge depends on two consecutive vertices \f$ \mathbf{s}_i, \mathbf{s}_{i+1} \f$ and penalizes a given rotation direction
+ * based on the \e weight and \e dir (\f$ dir \in \{-1,1\} \f$)
+ * \e dir should be +1 to prefer left rotations and -1 to prefer right rotations  \n
  * \e weight can be set using setInformation(). \n
- * @see TebOptimalPlanner::AddEdgesViaPoints
- * @remarks Do not forget to call setTebConfig() and setViaPoint()
+ * @see TebOptimalPlanner::AddEdgePreferRotDir
  */     
-class EdgeInArea : public BaseTebUnaryEdge<1, const Eigen::Vector2d*, VertexPose>
+class EdgeMinDistance : public BaseTebBinaryEdge<1, double, VertexPose, VertexPose>
 {
-protected:
- /** max distance between the two points */
-  double _max_dist;  
-
 public:
     
   /**
    * @brief Construct edge.
    */    
-  EdgeInArea(const TebConfig& cfg, VertexPose* v, const Eigen::Vector2d point, double max_dist, double error_weight) : _max_dist(max_dist)
+  EdgeMinDistance(VertexPose* v1, VertexPose* v2, double min_distance, double weight) :
+    _min_distance(min_distance)
   {
-    cfg_ = &cfg;
-    _measurement = new Eigen::Vector2d(point);
-    setVertex(0, v);
+    ROS_ASSERT(v1 != v2);
+    setVertex(0, v1);
+    setVertex(1, v2);
     Eigen::Matrix<double,1,1> information;
-    information.fill(error_weight);
+    information.fill(weight);
     setInformation(information);
   }
-
-  ~EdgeInArea() { delete _measurement; }
  
   /**
    * @brief Actual cost function
    */    
   void computeError()
   {
-    ROS_ASSERT_MSG(cfg_ && _measurement, "You must call setTebConfig(), setViaPoint() on EdgeViaPoint()");
-    const VertexPose* bandpt = static_cast<const VertexPose*>(_vertices[0]);
-    double dist = (bandpt->position() - *_measurement).norm();
-    if(dist > _max_dist)
-      _error[0] = dist - _max_dist;
-    else
-      _error[0] = 0.0;  
-
-    ROS_ASSERT_MSG(std::isfinite(_error[0]), "EdgeViaPoint::computeError() _error[0]=%f\n",_error[0]);
+    const VertexPose* conf1 = static_cast<const VertexPose*>(_vertices[0]);
+    const VertexPose* conf2 = static_cast<const VertexPose*>(_vertices[1]);
+    double dist = (conf1->position() - conf2->position()).norm();
+    
+    _error[0] = penaltyBoundFromBelow( dist , _min_distance, 0);
+    ROS_ASSERT(std::isfinite(_error[0]));
   }
+
+protected:
+  const double _min_distance;  
+    
   
-public: 	
+public: 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 };

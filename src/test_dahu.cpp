@@ -44,6 +44,7 @@
 
 #include <boost/shared_ptr.hpp>
 #include <boost/make_shared.hpp>
+#include <tf/tf.h>
 
 
 using namespace teb_local_planner; // it is ok here to import everything for testing purposes
@@ -55,10 +56,15 @@ TebVisualizationPtr visual;
 std::vector<ObstaclePtr> obst_vector;
 ViaPointContainer via_points;
 TebConfig config;
+RobotFootprintModelPtr robot_model;
 boost::shared_ptr< dynamic_reconfigure::Server<TebLocalPlannerReconfigureConfig> > dynamic_recfg;
 ros::Subscriber custom_obst_sub;
 ros::Subscriber via_points_sub;
 ros::Subscriber clicked_points_sub;
+ros::Subscriber req_sub;
+
+ros::Publisher markers_pub;
+
 std::vector<ros::Subscriber> obst_vel_subs;
 unsigned int no_fixed_obstacles;
 
@@ -73,96 +79,193 @@ void CB_clicked_points(const geometry_msgs::PointStampedConstPtr& point_msg);
 void CB_via_points(const nav_msgs::Path::ConstPtr& via_points_msg);
 void CB_setObstacleVelocity(const geometry_msgs::TwistConstPtr& twist_msg, const unsigned int id);
 
+visualization_msgs::Marker fromObjectPose(int poseID, std::shared_ptr<Plan const> plan) {
+  auto object_id = plan->_request->object_poses[poseID].object_id;
+  dahu_msgs::Object object = plan->getObject(object_id);
+
+  visualization_msgs::Marker marker;
+  marker.header.frame_id = "/map";
+  marker.header.stamp = ros::Time::now();
+  marker.ns = "objects";
+  marker.id = poseID;
+  marker.type = visualization_msgs::Marker::CYLINDER;
+  marker.action = visualization_msgs::Marker::ADD;
+  marker.scale.x = object.radius * 2;
+  marker.scale.y = object.radius * 2;
+  marker.scale.z = 0.2;
+  marker.pose.position.x = plan->refToObjectPose(poseID)->x();
+  marker.pose.position.y = plan->refToObjectPose(poseID)->y();
+  marker.text = object.name;
+  if(object.name == "A") {
+    marker.color.r = 0.0f;
+    marker.color.g = 1.0f;
+    marker.color.b = 0.0f;
+    marker.color.a = 1.0;
+  } else if(object.name == "B") {
+    marker.color.r = 1.0f;
+    marker.color.g = 0.0f;
+    marker.color.b = 0.0f;
+    marker.color.a = 1.0;
+  } else {
+    marker.color.r = 0.0f;
+    marker.color.g = 0.0f;
+    marker.color.b = 1.0f;
+    marker.color.a = 1.0;
+  }
+  return marker;
+}
+
+visualization_msgs::Marker fromRobotPose(int poseID, std::shared_ptr<Plan const> plan) {
+  auto vertex = plan->refToRobotPose(poseID);
+  auto pose = plan->getRobotPose(poseID);
+  auto model = plan->getRobot(pose.robot_id);
+  visualization_msgs::Marker marker;
+  marker.header.frame_id = "/map";
+  marker.header.stamp = ros::Time::now();
+  marker.ns = "robots";
+  marker.id = poseID;
+  marker.type = visualization_msgs::Marker::ARROW;
+  marker.action = visualization_msgs::Marker::ADD;
+  marker.scale.x = model.base_radius;
+  marker.scale.y = 0.02;
+  marker.scale.z = 0.02;
+  marker.pose.position.x = vertex->x();
+  marker.pose.position.y = vertex->y();
+  marker.pose.orientation = tf::createQuaternionMsgFromYaw(vertex->theta());
+  marker.color.b = 1.0f;
+  marker.color.a = 1.0;
+  
+  return marker;
+}
+
+visualization_msgs::Marker areaMarker(dahu_msgs::Area area) {
+  visualization_msgs::Marker marker;
+  marker.header.frame_id = "/map";
+  marker.header.stamp = ros::Time::now();
+  marker.ns = area.name;
+  marker.id = -1;
+  marker.type = visualization_msgs::Marker::CYLINDER;
+  marker.action = visualization_msgs::Marker::ADD;
+  marker.scale.x = area.radius * 2;
+  marker.scale.y = area.radius * 2;
+  marker.scale.z = 0.001;
+  marker.pose.position.x = area.center.x;
+  marker.pose.position.y = area.center.y;
+  marker.text = area.name;
+  marker.color.r = 0.0f;
+  marker.color.g = .0f;
+  marker.color.b = 1.0f;
+  marker.color.a = 0.3f;
+  return marker;
+}
+
+void plan(std::shared_ptr<dahu_msgs::PlanReq const> req) {
+  auto planner = DahuPlanner(config, &obst_vector, robot_model, visual);
+  auto plan = planner.plan(req);
+
+
+  for(dahu_msgs::Area area : req->areas) {
+    markers_pub.publish(areaMarker(area));
+  }
+
+  for(int i=0; i<plan->_request->object_poses.size(); i++) {
+    auto marker = fromObjectPose(i, plan);
+    markers_pub.publish(marker);
+  }
+  for(int i=0; i<plan->_request->robot_poses.size(); i++) {
+    markers_pub.publish(fromRobotPose(i, plan));
+  }
+  
+}
+
+void plan_boost(dahu_msgs::PlanReqConstPtr req) {
+  ROS_INFO("Got a new plan request");
+  plan(std::make_shared<dahu_msgs::PlanReq const>(*req));
+}
 
 // =============== Main function =================
 int main( int argc, char** argv )
 {
-  ros::init(argc, argv, "test_optim_node");
-  ros::NodeHandle n("~");
- 
-  
+  ros::init(argc, argv, "dahu");
+  ros::NodeHandle n("dahu");
+  ros::Rate r(1);
+
+  markers_pub = n.advertise<visualization_msgs::Marker>("markers", 1000);
+  req_sub = n.subscribe("plan_request", 1000, plan_boost);
+
   // load ros parameters from node handle
   config.loadRosParamFromNodeHandle(n);
- 
-  // ros::Timer cycle_timer = n.createTimer(ros::Duration(0.025), CB_mainCycle);
-  // ros::Timer publish_timer = n.createTimer(ros::Duration(0.1), CB_publishCycle);
-  
-  // setup dynamic reconfigure
-  // dynamic_recfg = boost::make_shared< dynamic_reconfigure::Server<TebLocalPlannerReconfigureConfig> >(n);
-  // dynamic_reconfigure::Server<TebLocalPlannerReconfigureConfig>::CallbackType cb = boost::bind(CB_reconfigure, _1, _2);
-  // dynamic_recfg->setCallback(cb);
-  
-  // setup callback for custom obstacles
-  // custom_obst_sub = n.subscribe("obstacles", 1, CB_customObstacle);
-  
-  // setup callback for clicked points (in rviz) that are considered as via-points
-  // clicked_points_sub = n.subscribe("/clicked_point", 5, CB_clicked_points);
-  
-  // setup callback for via-points (callback overwrites previously set via-points)
-  // via_points_sub = n.subscribe("via_points", 1, CB_via_points);
-
-  // interactive marker server for simulated dynamic obstacles
-  interactive_markers::InteractiveMarkerServer marker_server("marker_obstacles");
-
-  obst_vector.push_back( boost::make_shared<PointObstacle>(-3,1) );
-  obst_vector.push_back( boost::make_shared<PointObstacle>(6,2) );
-  obst_vector.push_back( boost::make_shared<PointObstacle>(0,0.1) );
-
-  // Dynamic obstacles
-  Eigen::Vector2d vel (0.1, -0.3);
-  obst_vector.at(0)->setCentroidVelocity(vel);
-  vel = Eigen::Vector2d(-0.3, -0.2);
-  obst_vector.at(1)->setCentroidVelocity(vel);
-
-  /*
-  PolygonObstacle* polyobst = new PolygonObstacle;
-  polyobst->pushBackVertex(1, -1);
-  polyobst->pushBackVertex(0, 1);
-  polyobst->pushBackVertex(1, 1);
-  polyobst->pushBackVertex(2, 1);
- 
-  polyobst->finalizePolygon();
-  obst_vector.emplace_back(polyobst);
-  */
-  
-  for (unsigned int i=0; i<obst_vector.size(); ++i)
-  {
-    // setup callbacks for setting obstacle velocities
-    std::string topic = "/test_optim_node/obstacle_" + std::to_string(i) + "/cmd_vel";
-    obst_vel_subs.push_back(n.subscribe<geometry_msgs::Twist>(topic, 1, boost::bind(&CB_setObstacleVelocity, _1, i)));
-
-    //CreateInteractiveMarker(obst_vector.at(i)[0],obst_vector.at(i)[1],i,&marker_server, &CB_obstacle_marker);  
-    // Add interactive markers for all point obstacles
-    boost::shared_ptr<PointObstacle> pobst = boost::dynamic_pointer_cast<PointObstacle>(obst_vector.at(i));
-    if (pobst)
-    {
-      CreateInteractiveMarker(pobst->x(),pobst->y(),i, config.map_frame, &marker_server, &CB_obstacle_marker);  
-    }
-  }
-  marker_server.applyChanges();
   
   // Setup visualization
   visual = TebVisualizationPtr(new TebVisualization(n, config));
   
   // // Setup robot shape model
-  RobotFootprintModelPtr robot_model = TebLocalPlannerROS::getRobotFootprintFromParamServer(n);
-  
-  // // Setup planner (homotopy class planning or just the local teb planner)
-  // if (config.hcp.enable_homotopy_class_planning)
-  //   planner = PlannerInterfacePtr(new HomotopyClassPlanner(config, &obst_vector, robot_model, visual, &via_points));
-  // else
-  //   planner = PlannerInterfacePtr(new TebOptimalPlanner(config, &obst_vector, robot_model, visual, &via_points));
+  robot_model = TebLocalPlannerROS::getRobotFootprintFromParamServer(n);
   
 
   no_fixed_obstacles = obst_vector.size();
   
+  
+  
+  
 
-  auto planner = DahuPlanner(config, &obst_vector, robot_model, visual);
-  planner.plan(dahu::Plan());
+  // auto reqPtr = std::make_shared<dahu_msgs::PlanReq>();
+  // dahu_msgs::Area a;
+  // a.name = "Area1";
+  // a.center.x = 1;
+  // a.center.y = 1;
+  // a.radius = 1;
+  // reqPtr->areas.push_back(a);
+  // a.name = "Area2";
+  // a.center.x = -1;
+  // a.center.y = 1;
+  // a.radius = 0.6;
+  // reqPtr->areas.push_back(a);
+
+  // dahu_msgs::Object o;
+  // o.name = "A";
+  // o.radius = 0.5;
+  // reqPtr->objects.push_back(o);
+  // o.name = "B";
+  // o.radius = 0.2;
+  // reqPtr->objects.push_back(o);
+
+  // dahu_msgs::ObjectPose op;
+  // op.object_id = "A";
+  // reqPtr->object_poses.push_back(op);
+  // op.object_id = "B";
+  // reqPtr->object_poses.push_back(op);
+
+  // dahu_msgs::ObjectIn oi;
+  // oi.area_id = "Area1";
+  // oi.object_pose_id = 0;
+  // oi.constraint_id = "C0";
+  // reqPtr->constraints.objects_in.push_back(oi);
+  // oi.area_id = "Area2";
+  // oi.object_pose_id = 1;
+  // oi.constraint_id = "C1";
+  // reqPtr->constraints.objects_in.push_back(oi);
+  
+
+  // while (markers_pub.getNumSubscribers() < 1)
+  //   {
+  //     if (!ros::ok())
+  //     {
+  //       return 0;
+  //     }
+  //     ROS_WARN_ONCE("Please create a subscriber to the marker");
+  //     sleep(1);
+  //   }
+  
+  // auto planner = DahuPlanner(config, &obst_vector, robot_model, visual); // DahuPlanner(config, &obst_vector, robot_model, visual, 0);
+  // planner.plan(reqPtr);
+  // plan(reqPtr);
   ros::spin();
 
   return 0;
 }
+
+
 
 // Planning loop
 void CB_mainCycle(const ros::TimerEvent& e)

@@ -41,6 +41,7 @@
 
 #include <Eigen/Core>
 #include <teb_local_planner/misc.h>
+#include <cmath>
 
 
 namespace teb_local_planner
@@ -457,6 +458,10 @@ double calc_distance_point_to_segment( const VectorType& point, const VectorType
   return (point-Pb).norm();
 }
 
+
+inline double angle_difference(const double a, const double b) {
+  return fabs(std::fmod(a - b + M_PI, 2.0*M_PI) - M_PI);
+}
   
   
 } // namespace teb_local_planner

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(teb_local_planner)
 
 # Set to Release in order to speed up the program significantly
-set(CMAKE_BUILD_TYPE Release) #None, Debug, Release, RelWithDebInfo, MinSizeRel
+set(CMAKE_BUILD_TYPE Debug) #None, Debug, Release, RelWithDebInfo, MinSizeRel
 
 ## Find catkin macros and libraries
 find_package(catkin REQUIRED COMPONENTS
@@ -10,7 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
   costmap_2d
   costmap_converter
   cmake_modules
-  dahu
+  dahu_msgs
   dynamic_reconfigure
   geometry_msgs
   interactive_markers
@@ -52,6 +52,8 @@ set(EXTERNAL_LIBS ${SUITESPARSE_LIBRARIES} ${G2O_LIBRARIES})
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
 # catkin_python_setup()
 
+SET(WARNING_FLAGS "-Wall -Wno-sign-compare")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${WARNING_FLAGS}")
 
 ## C++11 support
 ## Unfortunately, the 3d-party dependency libg2o requires c++11 starting from ROS Jade.
@@ -205,13 +207,13 @@ target_link_libraries(teb_local_planner
 
 ## Build additional executables
 
-add_executable(test_optim_node src/test_optim_node.cpp)
+# add_executable(test_optim_node src/test_optim_node.cpp)
 
-target_link_libraries(test_optim_node
-   teb_local_planner
-   ${EXTERNAL_LIBS}
-   ${catkin_LIBRARIES}
-)
+# target_link_libraries(test_optim_node
+#    teb_local_planner
+#    ${EXTERNAL_LIBS}
+#    ${catkin_LIBRARIES}
+# )
 
 add_executable(test_dahu src/test_dahu.cpp)
 
@@ -241,9 +243,9 @@ target_link_libraries(test_dahu
 install(TARGETS teb_local_planner
    LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
-install(TARGETS test_optim_node
-   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
+# install(TARGETS test_optim_node
+#    RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+# )
 
 ## Mark cpp header files for installation
 install(DIRECTORY include/${PROJECT_NAME}/

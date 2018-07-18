@@ -40,69 +40,76 @@
  *
  * Author: Christoph Rösmann
  *********************************************************************/
-#ifndef EDGE_IN_AREA_H_
-#define EDGE_IN_AREA_H_
+#ifndef EDGE_MANIPULATION_H_
+#define EDGE_MANIPULATION_H_
 
 #include <teb_local_planner/g2o_types/vertex_pose.h>
 #include <teb_local_planner/g2o_types/base_teb_edges.h>
-
+#include <teb_local_planner/g2o_types/penalties.h>
 #include "g2o/core/base_unary_edge.h"
+#include <cmath>
 
 
 namespace teb_local_planner
 {
 
 /**
- * @class EdgeViaPoint
- * @brief Edge defining the cost function for pushing a configuration towards a via point
+ * @class EdgePreferRotDir
+ * @brief Edge defining the cost function for penalzing a specified turning direction, in particular left resp. right turns
  * 
- * The edge depends on a single vertex \f$ \mathbf{s}_i \f$ and minimizes: \n
- * \f$ \min  dist2point \cdot weight \f$. \n
- * \e dist2point denotes the distance to the via point. \n
+ * The edge depends on two consecutive vertices \f$ \mathbf{s}_i, \mathbf{s}_{i+1} \f$ and penalizes a given rotation direction
+ * based on the \e weight and \e dir (\f$ dir \in \{-1,1\} \f$)
+ * \e dir should be +1 to prefer left rotations and -1 to prefer right rotations  \n
  * \e weight can be set using setInformation(). \n
- * @see TebOptimalPlanner::AddEdgesViaPoints
- * @remarks Do not forget to call setTebConfig() and setViaPoint()
+ * @see TebOptimalPlanner::AddEdgePreferRotDir
  */     
-class EdgeInArea : public BaseTebUnaryEdge<1, const Eigen::Vector2d*, VertexPose>
+class EdgeManipulation : public BaseTebBinaryEdge<2, double, VertexPose, VertexPose>
 {
-protected:
- /** max distance between the two points */
-  double _max_dist;  
-
 public:
     
   /**
    * @brief Construct edge.
    */    
-  EdgeInArea(const TebConfig& cfg, VertexPose* v, const Eigen::Vector2d point, double max_dist, double error_weight) : _max_dist(max_dist)
+  EdgeManipulation(VertexRobotPose* robot_pose, VertexObjectPose* object_pose, double min_distance, double max_distance, double cone_size, double weight) :
+    _min_distance(min_distance), _max_distance(max_distance), _cone_size(cone_size)
   {
-    cfg_ = &cfg;
-    _measurement = new Eigen::Vector2d(point);
-    setVertex(0, v);
-    Eigen::Matrix<double,1,1> information;
-    information.fill(error_weight);
+    ROS_ASSERT(robot_pose != object_pose);
+    setVertex(0, robot_pose);
+    setVertex(1, object_pose);
+    Eigen::Matrix<double,2,2> information;
+    information.fill(0);
+    information(0,0) = weight;
+    information(1,1) = weight;
     setInformation(information);
   }
-
-  ~EdgeInArea() { delete _measurement; }
  
   /**
    * @brief Actual cost function
    */    
   void computeError()
   {
-    ROS_ASSERT_MSG(cfg_ && _measurement, "You must call setTebConfig(), setViaPoint() on EdgeViaPoint()");
-    const VertexPose* bandpt = static_cast<const VertexPose*>(_vertices[0]);
-    double dist = (bandpt->position() - *_measurement).norm();
-    if(dist > _max_dist)
-      _error[0] = dist - _max_dist;
-    else
-      _error[0] = 0.0;  
-
-    ROS_ASSERT_MSG(std::isfinite(_error[0]), "EdgeViaPoint::computeError() _error[0]=%f\n",_error[0]);
+    const VertexRobotPose* robot_pose = static_cast<const VertexRobotPose*>(_vertices[0]);
+    const VertexObjectPose* object_pose = static_cast<const VertexObjectPose*>(_vertices[1]);
+    auto vec = object_pose->position() - robot_pose->position();
+    double dist = vec.norm();
+    
+    
+    _error[0] = penaltyBoundToInterval( dist , _min_distance, _max_distance, 0);
+    
+    const double target_angle = atan2(vec[1], vec[0]);
+    const double angular_distance = angle_difference(target_angle, robot_pose->theta());
+    _error[1] = penaltyBoundFromAbove( angular_distance, _cone_size/2.0, 0);
+    ROS_ASSERT(std::isfinite(_error[0]));
+    ROS_ASSERT(std::isfinite(_error[1]));
   }
+
+protected:
+  const double _min_distance;
+  const double _max_distance;  
+  const double _cone_size; // size of the cone (radians) in which manipulation must be done
+    
   
-public: 	
+public: 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 };
